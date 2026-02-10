@@ -1,72 +1,86 @@
-# Maven 仓库清理工具
+# DevOps 环境脚本集
 
-## 功能描述
+一组面向 DevOps 环境准备与维护的脚本，聚焦离线场景与可重复操作。所有脚本均可独立使用。
 
-这是一个用于清理 Maven 本地仓库（`~/.m2/repository`）中垃圾目录的工具。该工具能够识别并移除没有有效制品文件的目录结构。
+## 脚本一览
 
-## 工作原理
+| 脚本 | 作用 | 适用场景 |
+| --- | --- | --- |
+| [clean-m2-dirty.pl](clean-m2-dirty.pl) | 清理本地 Maven 仓库中的垃圾目录 | 构建环境长期使用后仓库膨胀 |
+| [download-vscode-server.sh](download-vscode-server.sh) | 下载 vscode-server 与 CLI，生成离线安装包 | 离线或受限网络环境部署 VS Code Server |
 
-该脚本通过以下标准识别垃圾目录：
-- **叶子目录**（无子目录）：如果目录内既没有 `.pom` 文件，也没有 `.jar`、`.war`、`.zip`、`.gz` 等制品文件，则视为垃圾目录
-- **嵌套空目录**：如果一个非叶子目录的所有子目录都是垃圾，且自身也缺少制品文件，则视为垃圾目录
 
-## 使用方法
+## clean-m2-dirty.pl
 
-### 试运行（仅扫描，不移动任何文件）
+### 目标与原理
+
+清理本地 Maven 仓库（默认 `~/.m2/repository`）中无效目录。判定规则:
+
+- 叶子目录没有 `.pom`，也没有 `.jar`/`.war`/`.zip`/`.gz`
+- 非叶子目录的所有子目录都是垃圾目录且自身也缺少制品文件
+
+### 运行流程
+
+1. 递归扫描 Maven 仓库
+2. 识别垃圾目录
+3. 仅移动最顶层垃圾目录到临时目录
+4. 使用 `find` 清理残留空目录
+
+### 安全提示
+
+- 建议先执行 `--dry-run` 查看影响范围
+- 脚本不直接删除，但临时目录可能被系统清理
+- 担心差错请先备份
+
+## download-vscode-server.sh
+
+### 目标与输入参数
+
+用于下载 vscode-server 与 CLI 包，并生成离线安装脚本。
+
+```
+用法: ./download-vscode-server.sh <version> [server_os_arch] [cli_os_arch]
+示例: ./download-vscode-server.sh 1.108.2 linux-x64 alpine-x64
+```
+
+参数说明:
+
+- `version`: VS Code 版本号，脚本会解析为对应提交 ID
+- `server_os_arch`: server 包目标平台，默认 `linux-x64`
+- `cli_os_arch`: CLI 包目标平台，默认 `alpine-x64`
+
+### 下载与文件布局
+
+下载完成后，目录结构示例:
+
+```
+<commit_id>/
+├── server-<os-arch>.tar.gz
+├── cli-<os-arch>.tar.gz
+└── install.sh
+```
+
+### 离线安装步骤
+
+1. 将下载目录拷贝到目标机器
+2. 进入提交 ID 目录，执行安装脚本
+
 ```bash
-perl clean-m2-dirty.pl --dry-run
+cd <commit_id>
+./install.sh
 ```
 
-### 正式运行（扫描并移动垃圾目录）
+3. 默认安装到 `~/.vscode-server`，也可指定目录:
+
 ```bash
-perl clean-m2-dirty.pl
+./install.sh /custom/path/.vscode-server
 ```
 
-## 工作流程
+### 常见问题
 
-1. **扫描阶段**：递归遍历 Maven 仓库，识别所有垃圾目录
-2. **移动阶段**：将识别出的垃圾目录（仅最顶层）移动到临时目录
-3. **清理阶段**：使用 `find` 命令删除所有残留的空目录
-4. **完成**：显示临时目录位置，用户可自行确认后删除
-
-## 特点
-
-- ✅ 支持试运行模式（`--dry-run`）
-- ✅ 仅移动最顶层垃圾目录，避免路径重复
-- ✅ 自动清理所有残留的空目录
-- ✅ 保留相对目录结构便于审查
-- ✅ 提供临时目录位置，便于用户手动确认删除
-
-## 例子
-
-假设目录结构如下：
-```
-~/.m2/repository/
-├── oorg/apache/commons/commons-lang/      （垃圾）
-│   
-└── org/apache/commons/commons-lang/
-    ├── commons-lang-2.6.jar                    （有效）
-    └── commons-lang-2.6.pom                    （有效）
-```
-
-运行脚本后，垃圾目录会被移动到临时目录，如：
-```
-/tmp/m2-garbage-XXXXXX/oorg/apache/commons/commons-lang/ 
-```
+- 如果提示找不到匹配的压缩包，请确认下载的 OS/ARCH 与目标机器一致
+- CLI 的 `alpine` 参数会自动转换为 `linux` 文件名以匹配安装逻辑
 
 ## 许可证
 
-本项目采用 GNU Affero General Public License v3.0 (AGPL-3.0) 许可证。
-详见 [LICENSE](LICENSE) 文件。
-
-## 安全提示
-
-- 在正式运行前，建议先使用 `--dry-run` 模式查看将要处理的目录
-- 虽然脚本不会直接删除，但移动后的目录在临时目录中可能会被系统自动清理
-- 重要的项目依赖请先备份
-
-## 技术细节
-
-- **语言**：Perl 5
-- **依赖**：仅使用 Perl 标准库
-- **要求**：需要 `find` 命令支持 `-empty` 和 `-delete` 选项（Linux/macOS 都支持）
+本项目采用 GNU Affero General Public License v3.0 (AGPL-3.0) 许可证。详见 [LICENSE](LICENSE)。
